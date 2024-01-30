@@ -21,5 +21,7 @@
 连接学校校内访问 VPN 之后，由学校密码登录界面无需输入验证码确定是在校内，但仍然无法连接校内服务器。
 #### Solution
 CFW 打开 TUN Mode，介绍可以看这里：[TUN Mode](https://docs.gtk.pw/contents/tun.html)，其实就是对于不遵循系统代理的软件，TUN 模式可以接管其流量并交由 CFW 处理。
-**TUN Mode需要先安装上方的Service Mode**，不然 TUN Mode 模式开了也没用。
+**TUN Mode需要先安装上方的Service Mode**，不然 TUN Mode 模式开了也没用。安装完成的标志绿色小地球：
+![1](assets/1.png)
+
 
