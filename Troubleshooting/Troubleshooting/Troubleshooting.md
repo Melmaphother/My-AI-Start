@@ -24,4 +24,13 @@ CFW 打开 TUN Mode，介绍可以看这里：[TUN Mode](https://docs.gtk.pw/con
 **TUN Mode需要先安装上方的Service Mode**，不然 TUN Mode 模式开了也没用。安装完成的标志绿色小地球：
 ![1](assets/1.png)
 
+## Latex
+### Problem 1
+#### Description
+标题中直接出现下划线时，maketitle 处报错：
 
+```bash
+    Missing $ inserted.
+```
+#### Solution
+Latex 标题中如果出现下划线，可以使用 \_ 代替下划线，或者不使用下划线。
