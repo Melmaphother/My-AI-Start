@@ -34,11 +34,29 @@ gdb 相对来说较为复杂，实际上使用可视化调试更加简单，但�
 
 ### gdb 与 shell 切换
 #### 进入 gdb
+```bash
+gdb [filename]
+```
+
 #### 返回 shell
+在 gdb 中输入
+```bash
+shell
+```
+
 #### 再返回 gdb
+在 shell 中输入
+```bash
+exit
+```
 
 ### 断点
 #### 添加断点
+有很多种添加断点的方式：
+```bash
+b [line-number]
+
+```
 #### 查看断点
 #### 临时禁止断点和恢复
 #### 删除断点
