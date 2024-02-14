@@ -18,5 +18,38 @@
 
 要不来点《中国程序员失掉自信力了吗》？😀。
 
-## 摘要
+## 文件结构解释
 
+- dataset.py
+  定义数据集的类，定义了该数据集的一些内置方法
+
+- datautils.py
+  数据集分类和处理
+
+- model
+  - layers.py
+    transformer 的 layers 层
+  - TimeMAE.py
+    TimeMAE 模型
+
+- args.py
+  根据 datautils 中处理数据集的方法设置参数。
+  并设置其他参数，比如 cuda 之类
+
+- classification.py
+  分类器，只有两个方法
+
+- loss.py
+  计算 loss
+
+- process.py
+  定义训练类和训练函数
+
+- visualize.py
+  可视化结果
+
+- main.py
+  运行整个流程
+
+- run.sh
+  脚本文件，用于运行 main.py 和设置参数
