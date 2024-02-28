@@ -24,6 +24,14 @@ CFW 打开 TUN Mode，介绍可以看这里：[TUN Mode](https://docs.gtk.pw/con
 **TUN Mode需要先安装上方的Service Mode**，不然 TUN Mode 模式开了也没用。安装完成的标志绿色小地球：
 ![1](assets/1.png)
 
+
+### Problem 3
+#### Description
+Linux 在某个 conda 环境中，使用 pip 安装的包，不在 anaconda2/envs/ml/lib/python3.8/site-packages 中
+
+#### Solution
+运行 python -m site，显示当前 Python 解释器的信息，包括 site-packages 目录。检查这个目录，发现 pip 安装的包在 ~/.local/lib/python3.8/site-packages 中。
+
 ## Latex
 ### Problem 1
 #### Description
@@ -34,3 +42,12 @@ CFW 打开 TUN Mode，介绍可以看这里：[TUN Mode](https://docs.gtk.pw/con
 ```
 #### Solution
 Latex 标题中如果出现下划线，可以使用 \_ 代替下划线，或者不使用下划线。
+
+## Network
+### Problem 1
+#### Description
+pip 下载超时，报错：
+![](assets/2.png)
+
+#### Solution
+pip install X --default-timeout=100
