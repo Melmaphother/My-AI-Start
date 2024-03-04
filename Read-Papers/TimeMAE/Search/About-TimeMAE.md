@@ -167,7 +167,7 @@ class Encoder(nn.Module):
 
 #### TimeMAE 的提出
 
-1. TimeMAE 仍然是一种 Masked AutoEncoder Architecture。它的新颖之处在于不是单独对每个时间步建模，而是通过 Window Slicing（窗口切片）将每个时间序列分割一系列非重叠的子序列。这种策略：
+1. TimeMAE 仍然是一种 Masked Auto-Encoder Architecture。它的新颖之处在于不是单独对每个时间步建模，而是通过 Window Slicing（窗口切片）将每个时间序列分割一系列非重叠的子序列。这种策略：
 
    - 增加了遮蔽语义的信息密度
    - 由于序列长度较短，还显著节省计算成本和内存消耗。
@@ -176,7 +176,7 @@ class Encoder(nn.Module):
 
    **重点：论文指出：mask-radio 要高达 60% 才能最匹配时间序列的表示（代码中是 9: 16）。**
 
-2. TimeMAE 也遇到了挑战：为了解决 Mask 位置引起的差异，其 AutoEncoder Architecture 是 Decoupled 的。Visible 部分和 Mask 部分分别用两个不同的 Encoder 提取其上下文表征。
+2. TimeMAE 也遇到了挑战：为了解决 Mask 位置引起的差异，其 Auto-Encoder Architecture 是 Decoupled 的。Visible 部分和 Mask 部分分别用两个不同的 Encoder 提取其上下文表征。
 
    为了恢复 Mask 部分，制定 MCC & MRR 两个任务指导预训练过程。这两个任务**旨在将 Mask 位置的预测表示与提取的目标表示对齐。**由于有 Decoupled Encoder，所以 Network Architecture 也是连接起来的。
 
@@ -208,9 +208,31 @@ class Encoder(nn.Module):
 
 ### TimeMAE Pre-Training Architecture
 
-重点在三个部分：
+#### 整体介绍
 
-- feature encoder layer
-- representation layer
+将输入序列投影到潜在表示中，随后通过 Mask 策略将整个输入分为 visible 输入和 mask 的子序列。然后，采用 Decoupled Auto-Encoder Architecture，利用两个相应的编码器学习 visible 位置和 mask 位置的表示。
+
+1. Encoder 层面：使用一系列基础的变换器编码器块来提取可见输入的上下文表示，同时利用几层基于交叉注意力的 Transformer Encoder 网络来学习遮蔽位置的表示。
+2. Decoder 层面：通过预测基于 visible 输入的所有缺失部分来执行重构任务，这一过程得到了两种新构建的目标信号的帮助：
+   - 增加了一个 Tokenizer 模块为每个 mask 区域分配其自有的 codeword，允许训练 code classification 任务。
+   - 采用孪生网络架构（siamese network architecture）生成连续的目标表示信号，旨在执行连续的目标表示回归任务（target representation regression task）。
+
+#### feature encoder layer
+
+1. 聚焦问题：
+
+   - 如何为预训练选择信息丰富的基本语义单元
+   - 如何实现时间序列的双向编码器
+
+2. window slicing 策略
+
+   首先再提及了前文所述的将时间序列做单点处理的缺陷：时间冗余、信息密度低、每个遮蔽点都可以从其邻近点轻松推断出来。本文采用了 window slicing 策略：每个时间序列可以被处理成一系列子序列单元，每个局部子序列区域保留了更丰富的语义信息，并可以确保重构任务的挑战性。
+
+   需要注意的是，这样的论点也可以得到基于形状的模型的支持，在这些模型中，许多与类标签相关的具有区分性的子序列被提取为时间序列分类的 useful 模式特征。例如：我们需要通过许多局部波形区域而不是单个点来识别异常的心电图（ECG）信号。
+
+3. 
+
+#### representation layer
+
 - pretext optimization task（前置优化）
 
