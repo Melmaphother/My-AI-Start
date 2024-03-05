@@ -242,14 +242,70 @@ class Encoder(nn.Module):
    >
    > 1. 在每个预训练时期都会随机动态地遮蔽时间序列，以进一步增加训练信号的多样性。
    >
-   > 2. TimeMAE还鼓励保留较高的 mask radio。这是因为 mask radio 在决定恢复任务是否足够 challenging 以帮助 Encoder 携带更多信息方面很重要。通常，较高的遮蔽比例意味着依赖这些可见邻域区域的恢复任务更难解决。相应地，更具表达力的网络容量可以在预训练的编码器网络中被编码。
-   > 3. 论文发现约60%的遮蔽比例可以帮助我们实现最佳性能，这与之前工作中15%的遮蔽比例不同。
+   > 2. TimeMAE 还鼓励保留较高的 mask radio。这是因为 mask radio 在决定恢复任务是否足够 challenging 以帮助 Encoder 携带更多信息方面很重要。通常，较高的遮蔽比例意味着依赖这些可见邻域区域的恢复任务更难解决。相应地，更具表达力的网络容量可以在预训练的编码器网络中被编码。
+   > 3. 论文发现约60%的遮蔽比例可以实现最佳性能，这与之前工作中15%的遮蔽比例不同。
    > 4. 无论是窗口切片还是遮蔽策略都对时间序列输入是不可知的，这不会像对比学习中的数据增强那样带来太多的归纳偏见。
 
-#### representation layer
+#### representation learning for time series
 
-- pretext optimization task（前置优化）
+1. 可见位置的表征
 
-### 数据介绍
+   采用了包含 Multi-head Attention Layer 和 Feed-Forward Layer 的经典 Transformer 架构，用于学习在 visible 区域的上下文表示。每个输入单元可以获得所有其他位置的语义关系。
 
-将三维数据（时间线，window slicing，）平铺在一维
+   由于 window slicing，使用 self-attention 机制处理长序列的瓶颈问题得到了缓解（因为点数据变成了区间，数量减少很多）
+
+   由于 Transformer 并不能处理位置信息，所以输入还要加入位置信息，所以最终 visible 部分的 input embedding 就是 projected representations（投影表示）和 positional encoding 结合起来得到的。
+
+   visible 部分的 input embedding 会被送入 Encoder 模块。在 Encoder 模块中有 $L_v$ 层 Transformer 模块，最后一层的输入代表了所有 visible 部分的全局上下文表示。
+
+   > 这里只将 visible 部分送入 Encoder 模块，同时移除 mask 位置的表示。这样可以缓解由 mask token 引起的 pre-training 和 fine-tuning 之间的差异。这种策略消除了之前 feed-forward 过程中将 mask token 送入 Encoder 模块的困境
+
+2. 遮蔽位置的表征
+
+   将标准 Transformer Encoder 中的 self-attention 换成 cross-attention，形成 decoupled Encoder 模块 $F_{\theta}$。
+
+   将 visible 和 mask 部分发送到 decoupled encoder 中，但是 mask 位置的 embedding 被替换为新初始化的向量 $z_{mask}$，同时保持相应的 position embedding。在 decoupled encoder 中做表征学习时，将 mask position 的表示视为 query embedding，同时将可见位置的 transformed embedding 视为输入以形成 key 和 value。
+
+   形式上，mask query 的模型参数对所有 mask query 都是共享的。decoupled encoder 的第 $L_m$ 层输出表示了 $S_m$ 的 mask 位置的 transformed 上下文表示。
+
+   > 注意：decoupled encoder 仅对 mask 位置的 embedding 进行预测，同时保持 visible 的 embedding 不更新。原因是：
+   >
+   > - 希望这样的操作可以帮助减轻反向传播的差异问题，通过这种分割操作， visible 输入的表示仅有之前的 encoder $H_{\theta}$ 负责。同时，decoupled encoder $F_{\theta}$ 主要关注 mask 位置的表示。
+   >
+   > - $F_{\theta}$ 的另一个优势是防止之后的 decoder prediction layer 对 visible 位置的表征学习，这样 encoder 模块 $H_{\theta}$ 可以携带更有意义的信息。
+
+#### Self-supervised Optimization
+
+1. MCC
+
+   为每个局部子序列分配其自有的“编码词”。然后，这些分配的编码词作为缺失部分的代理监督信号。
+
+   大多数当前的产品量化方法，主要思想是基于 cluster 操作，用由聚类索引组成的短代码来编码每个密集向量，其中所有索引形成 codebook vocabulary。尽管其近似误差低，但它实际上是一种 two-stage 方法，即独立地分配聚类索引和学习特征的提取。这样，codebook 的表示能力可能与从 Transformer Encoder 和 decoupled network 中提取的特征不兼容。因为这种不兼容性，如果天真地采用这些技术来分配离散监督信号，自监督训练的性能将直接受到影响。因此，论文中提出了一个标记器模块，它可以以端到端的方式将遮蔽位置的连续 embedding 转换成离散的 codeword。
+
+   后面用 Temperature Softmax 代替了 argmax，并且使用 STE 的 trick 保证了反向传播的可偏微分性
+
+2. MRR
+
+   这部分比较简单，即算一个prediction representation与 target representation 的 MSE。其中target representation是经过momentum network的输出，而prediction representation是用visible的数据和mask token预测出的representation
+
+   其中应用了 momentum-based moving average
+
+   > import from ChatGPT
+   >
+   > 动量基础的移动平均这种策略广泛应用于各种优化算法中，特别是在深度学习模型的训练过程中，用来平滑参数的更新，以促进更快的收敛和减少训练过程中的波动。
+   >
+   > 在这个上下文中，动量系数用于控制先前梯度更新的影响程度。具体来说，它决定了在计算新的参数更新时，当前梯度与过去累积的梯度更新的相对重要性。这个系数通常表示为一个在0到1之间的值（例如0.9）。较高的动量系数意味着先前的更新在当前更新中占有更大的比重，从而使优化过程更加平滑。
+
+### 数据作图
+
+将三维张量数据（sub-series numbers，cycles in a sub-series，points in a cycle）平铺在一维：
+
+<img src="assets/4.png" style="zoom: 67%;" />
+
+将一维张量标签（sub-series numbers）作图：
+
+<img src="assets/5.png" style="zoom:67%;" />
+
+将一个 cycle 的图画出：
+
+<img src="assets/6.png" style="zoom:67%;" />
