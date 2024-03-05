@@ -236,3 +236,6 @@ class Encoder(nn.Module):
 
 - pretext optimization task（前置优化）
 
+### 数据介绍
+
+将三维数据（时间线，window slicing，）平铺在一维
