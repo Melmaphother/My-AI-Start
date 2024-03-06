@@ -1,130 +1,10 @@
 # About TimeMAE
 
-## 代码结构
-
-- `dataset.py`
-  定义数据集的类，定义了该数据集的一些内置方法
-
-- `datautils.py`
-  数据集分类和处理
-
-- `model`
-  - `layers.py`
-    `transformer` 的 layers 层
-  - `TimeMAE.py`
-    TimeMAE 模型
-
-- `args.py`
-  根据 `datautils` 中处理数据集的方法设置参数。
-  并设置其他参数，比如 cuda 之类
-
-- `classification.py`
-  分类器，只有两个方法
-
-- `loss.py`
-  计算 loss
-
-- `process.py`
-  定义训练类和训练函数
-
-- `visualize.py`
-  可视化结果
-
-- `main.py`
-  运行整个流程
-
-- `run.sh`
-  脚本文件，用于运行 `main.py` 和设置超参数
-  运行三次，猜测可能是计算误差。
-
-## 数据集介绍
-仅介绍 HAR 数据集：使用 load_HAR 函数，可以发现：TRAIN_DATA_ALL, TRAIN_DATA, TEST_DATA 分别用于预训练、微调和测试。其中各个数据集的规模如下：
-
-![](assets/1.png)
-
-其中 TRAIN_DATA_ALL 是 TRAIN 和 VAL 的拼接。
-
-**重点：**
-在设定了 batch-size 之后，进入 encoder 的 tensor 结构是：(batch_size, sequence_length, dimension) =（128， 7， 64）
-
-
-## 代码介绍
-
-在模型中，使用自定义多层的 transformer 模型 TransformerBlock 做 Encoder，如下：
-```python
-class Encoder(nn.Module):
-    def __init__(self, args):
-        super(Encoder, self).__init__()
-        d_model = args.d_model
-        attn_heads = args.attn_heads
-        d_ffn = 4 * d_model
-        layers = args.layers
-        dropout = args.dropout
-        enable_res_parameter = args.enable_res_parameter
-        # TRMs
-        self.TRMs = nn.ModuleList(
-            [TransformerBlock(d_model, attn_heads, d_ffn, enable_res_parameter, dropout) for i in range(layers)])
-
-    def forward(self, x):
-        for TRM in self.TRMs:
-            x = TRM(x, mask=None)
-        return x
-```
-
-- d_model 表示 Transformer 编码器的隐藏层维度。
-- attn_heads 表示注意力头的数量。
-- d_ffn 是 FeedForward 层的隐藏层维度，这里设置为隐藏层维度的 4 倍。
-- layers 表示 Transformer 编码器的层数。
-- dropout 是 dropout 概率。
-- enable_res_parameter 是一个布尔值，表示是否启用残差连接中的可学习参数。
-- self.TRMs 是一个由多个 TransformerBlock 组成的列表，构建了 Transformer 编码器。
-
-## 运行结果
-在服务器上搭建环境，运行之后的结果为（仅 HAR 数据集）：
-
-![](assets/2.png)
-
-与论文中对比，可见结果非常符合。
-
-![](assets/3.png)
-
-## 修改和调整
-
-要求用 BERT 的网络架构和网络参数初始化模型，并替换 TimeMAE 的Encoder。这里做了一些尝试，修改了 TimeMAE 的 Encoder 部分：
-
-```python
-from transformers import BertModel, BertConfig
-
-class Encoder(nn.Module):
-    def __init__(self, args):
-        super(Encoder, self).__init__()
-        bert_config = BertConfig(
-            hidden_size=args.d_model,
-            num_hidden_layers=args.layers,
-            num_attention_heads=args.attn_heads,
-            intermediate_size=4 * args.d_model,
-            hidden_dropout_prob=args.dropout,
-            attention_probs_dropout_prob=args.dropout
-        )
-        self.bert_model = BertModel(config=bert_config)
-
-    def forward(self, x):
-        x = self.bert_model(x)
-        x = x.last_hidden_state
-        return x
-```
-
-但是这里遇到了一系列问题：BertModel 接收的参数是一个规模为 （batch_size, sequence_length）的 **整形** tensor，而这里的时间序列数据是一个规模为 (batch_size, sequence_length, dimension) =（128， 7， 64）的浮点型 tensor。使用了一些降维方式，但是仍然无效。
-
-## TODO
-
-研究如何将数据映射为 BertModel 可接受的输入方式。
-
 
 ## 论文精读
 
-### MCC & MRR 优化
-在论文摘要中，**Masked Codeword Classification (MCC)** 任务和 **Masked Representation Regression (MRR)** 优化是两种预文本任务，用于自监督学习框架中以提高模型学习效果。下面是对这两个任务的解释：
+### Abstract
+在论文摘要中，**Masked Codeword Classification (MCC)** 任务和 **Masked Representation Regression (MRR)** 优化是两种预文本任务，用于自监督学习框架中以提高模型学习效果。也是这篇论文的任务
 
 #### Masked Codeword Classification (MCC) ：掩码码字分类
 
@@ -236,7 +116,7 @@ class Encoder(nn.Module):
 
    为了实现通过 bidirectional encoding 方案学习时间序列的上下文表示的目标，按照文献[16]的方法，通过遮蔽策略构造受损输入。假设 $S_v/S_m $​ 是遮蔽/可见位置的数量。通过这种方式，可以同时编码每个位置的更全面的上下文表示，包括之前和未来的上下文。
 
-   使用 $Z_v$ 来表示可见位置的 embedding ，同时 $Z_m$​ 是遮蔽位置的 embedding 。采用随机遮蔽策略来形成受损输入。这意味着每个子序列单元在构造自监督信号时都有相同的被遮蔽概率。它可以确保每个输入位置的表示质量在重构优化期间得到充分提升。
+   使用 $Z_v$ 来表示可见位置的 embedding ，同时 $Z_m$​ 是遮蔽位置的 embedding 。采用随机遮蔽策略来形成          受损输入。这意味着每个子序列单元在构造自监督信号时都有相同的被遮蔽概率。它可以确保每个输入位置的表示质量在重构优化期间得到充分提升。
 
    > Tips:
    >
@@ -278,11 +158,31 @@ class Encoder(nn.Module):
 
 1. MCC
 
-   为每个局部子序列分配其自有的“编码词”。然后，这些分配的编码词作为缺失部分的代理监督信号。
+   从product quantization中得到的启发，即是否可以用一种新的discrete view来表示这种重构的序列，即给每个sub-series分配 "codeword"（个人觉得应该描述为什么这么做）。然后，这些被分配的codeword作为缺失部分的surrogate supervision signal（代理监督信号）。
 
-   大多数当前的产品量化方法，主要思想是基于 cluster 操作，用由聚类索引组成的短代码来编码每个密集向量，其中所有索引形成 codebook vocabulary。尽管其近似误差低，但它实际上是一种 two-stage 方法，即独立地分配聚类索引和学习特征的提取。这样，codebook 的表示能力可能与从 Transformer Encoder 和 decoupled network 中提取的特征不兼容。因为这种不兼容性，如果天真地采用这些技术来分配离散监督信号，自监督训练的性能将直接受到影响。因此，论文中提出了一个标记器模块，它可以以端到端的方式将遮蔽位置的连续 embedding 转换成离散的 codeword。
+   大多数当前的产品量化方法，主要思想是基于 cluster 操作，用由聚类索引组成的短代码来编码每个密集向量，其中所有索引形成 codebook vocabulary。尽管其近似误差低，但它实际上是一种 two-stage 方法，即独立地分配聚类索引和学习特征的提取。这样，codebook 的表示能力可能与从 Transformer Encoder 和 decoupled network 中提取的特征不兼容。因为这种不兼容性，如果天真地采用这些技术来分配离散监督信号，自监督训练的性能将直接受到影响。因此，论文中提出了一个 Tokenize 模块，它可以以端到端的方式将遮蔽位置的连续 embedding 转换成离散的 codeword。
 
-   后面用 Temperature Softmax 代替了 argmax，并且使用 STE 的 trick 保证了反向传播的可偏微分性
+   > 不太明白与之前量化的区别，感觉没有太大区别？
+
+   关键思想是通过 sub-series representation 和 candidate codeword vectors. 相似性计算，为每个子序列分配最近的 codeword。
+
+   > 为什么使用 inner product 而不用 cosine similarity 
+   >
+   > 论文使用内积而不是余弦相似度来估计在标记器中的相关性得分，因为由于梯度爆炸导致的范数的倒数可以容易地被防止。通过这种方式，每个局部子序列可以被分配其自有的离散 codeword，代表了固有的时间模式。在为每个输入单元分配了 codeword 之后，我们将嵌入矩阵传递给 decoder 层，以获得 codeword prediction distribution，从而执行MCC优化。
+
+   不失一般，论文中采用交叉熵损失来形成 class token recovering 优化 $L_{cls}$，$L_{cls}$中的优化目标等同于最大化给定 mask input embedding 的正确 codeword 的对数似然。然而，据报道，这种 codeword 最大选择操作容易导致两方面的问题：(1) 容易导致崩溃结果，即只有非常少比例的编码词被选择；(2) 它使得上述方程中的优化损失变得不可微分，因此反向传播算法不能被应用于计算梯度。
+
+   于是论文使用带有先验分布（Gumbel noise distribution）的 Temperature Softmax 代替了普通的 softmax 取最大概率，允许模型在训练过程中探索更多可能的输出空间。通过引入采样步骤，每个决策不再是固定不变的，而是有一定概率选择不同的类别，这增加了决策的多样性，并且使得模型不太可能陷入仅仅依赖少数几个高频选择的局部最优解，从而在一定程度上缓解了因最大选择导致的模型崩溃（collapse）问题。
+
+   同时，论文使用 STE（Straight-Through Estimator (STE) ） 的 trick 保证了反向传播的可导性，将梯度更新用该式代替：
+
+   ![](D:\My-winter-vacation-study\Read-Papers\TimeMAE\Search\assets\7.png)
+
+   在这里，sg 表示停止梯度操作符，即零偏导数，它能有效地限制其操作为一个不更新的常数。
+
+   在前向传播中，停止梯度不起作用。在前向传播过程中，nearest embedding 的索引被分配为 current embedding 的离散 codeword。
+
+   在反向传播中，停止梯度操作生效。相应地，梯度 $L_{cls}$ 不变地传递到 codebook matrix 的嵌入空间中，这意味着非可微分问题得到了解决。需要注意的是，梯度包含了关于 decoder 应如何改变其输出以降低重构损失有用信息，同样这也确保了每个编码词的丰富语义。在每个训练周期中，梯度可以推动 mask 区域的嵌入在下一个前向传递中以不同的方式被标记化，因为方程1中的分配将会不同。
 
 2. MRR
 
@@ -296,16 +196,155 @@ class Encoder(nn.Module):
    >
    > 在这个上下文中，动量系数用于控制先前梯度更新的影响程度。具体来说，它决定了在计算新的参数更新时，当前梯度与过去累积的梯度更新的相对重要性。这个系数通常表示为一个在0到1之间的值（例如0.9）。较高的动量系数意味着先前的更新在当前更新中占有更大的比重，从而使优化过程更加平滑。
 
-### 数据作图
+   > target encoder 和 online encoder 的引入
+   >
+   > 为了生成 target represention，进一步采用了一个新颖的 online encoder 模块。让Hξ表示目标编码器，它保留了与原本 Hθ 的编码器相同的超参数设置，但以 ξ 参数化。
+   >
+   > 论文将标准变换器编码器 Hθ 和解耦编码器 Fθ 模块的组合称为 online encoder，在此生成对齐的表示。依赖于这样的孪生网络架构，target encoder 和 online encoder 分别可以产生遮蔽子序列表示的不同视图。因此，对齐两个不同视图的相应表示，即目标表示和预测表示F，自然形成了MRR任务的目标。
+   >
+   > 理论上，MSE 可以用来优化 online encoder 和 target encoder。然而，由于在孪生网络架构中省略了负例，容易导致崩溃。为了防止模型崩溃的结果，论文中遵循以不同方式更新两个网络的规则，这种做法在之前的工作中被证明有效。根据这个思想，执行一个随机优化步骤，仅最小化在线编码器的参数，同时以动量移动平均的方式更新目标编码器。
 
-将三维张量数据（sub-series numbers，cycles in a sub-series，points in a cycle）平铺在一维：
+    为什么需要stop-gradient？
+
+   在一些特殊的训练目标或约束条件下，可能需要确保某些操作或变量在优化过程中不受影响。
+
+   在本文自监督学习任务中，为了保证信息从一个网络部分到 codebook 的单向流动，需要使用stop-gradient来阻止关于 Encoder 应如何改变其输出以降低重构损失的信息 的反向传播
+
+### 问题
+
+1. stop-gradient 位置错误
+2. 用一种新的discrete view来表示这种重构的序列，即给每个sub-series分配 "codeword"（个人觉得应该描述为什么这么做）
+3. 不太明白与之前量化的区别，感觉没有太大区别？
+4. 如何将数据映射为 BertModel 可接受的输入方式。
+
+## 代码介绍
+
+### 代码结构
+
+- `dataset.py`
+  定义数据集的类，定义了该数据集的一些内置方法
+
+- `datautils.py`
+  数据集分类和处理
+
+- `model`
+  - `layers.py`
+    `transformer` 的 layers 层
+  - `TimeMAE.py`
+    TimeMAE 模型
+
+- `args.py`
+  根据 `datautils` 中处理数据集的方法设置参数。
+  并设置其他参数，比如 cuda 之类
+
+- `classification.py`
+  分类器，只有两个方法
+
+- `loss.py`
+  计算 loss
+
+- `process.py`
+  定义训练类和训练函数
+
+- `visualize.py`
+  可视化结果
+
+- `main.py`
+  运行整个流程
+
+- `run.sh`
+  脚本文件，用于运行 `main.py` 和设置超参数
+  运行三次，猜测可能是计算误差。
+
+### 数据集
+
+仅介绍 HAR 数据集：使用 load_HAR 函数，可以发现：TRAIN_DATA_ALL, TRAIN_DATA, TEST_DATA 分别用于预训练、微调和测试。其中各个数据集的规模如下：
+
+![](assets/1.png)
+
+其中 TRAIN_DATA_ALL 是 TRAIN 和 VAL 的拼接。
+
+- 将三维张量数据（sub-series numbers，cycles in a sub-series，points in a cycle）平铺在一维：
 
 <img src="assets/4.png" style="zoom: 67%;" />
 
-将一维张量标签（sub-series numbers）作图：
+- 将一维张量标签（sub-series numbers）作图：
 
 <img src="assets/5.png" style="zoom:67%;" />
 
-将一个 cycle 的图画出：
+- 将一个 cycle 的图画出：
 
 <img src="assets/6.png" style="zoom:67%;" />
+
+**重点：**
+在设定了 batch-size 之后，进入 encoder 的 tensor 结构是：(batch_size, sequence_length, dimension) =（128， 7， 64）
+
+### Encoder 部分
+
+在模型中，使用自定义多层的 transformer 模型 TransformerBlock 做 Encoder，如下：
+
+```python
+class Encoder(nn.Module):
+    def __init__(self, args):
+        super(Encoder, self).__init__()
+        d_model = args.d_model
+        attn_heads = args.attn_heads
+        d_ffn = 4 * d_model
+        layers = args.layers
+        dropout = args.dropout
+        enable_res_parameter = args.enable_res_parameter
+        # TRMs
+        self.TRMs = nn.ModuleList(
+            [TransformerBlock(d_model, attn_heads, d_ffn, enable_res_parameter, dropout) for i in range(layers)])
+
+    def forward(self, x):
+        for TRM in self.TRMs:
+            x = TRM(x, mask=None)
+        return x
+```
+
+- d_model 表示 Transformer 编码器的隐藏层维度。
+- attn_heads 表示注意力头的数量。
+- d_ffn 是 FeedForward 层的隐藏层维度，这里设置为隐藏层维度的 4 倍。
+- layers 表示 Transformer 编码器的层数。
+- dropout 是 dropout 概率。
+- enable_res_parameter 是一个布尔值，表示是否启用残差连接中的可学习参数。
+- self.TRMs 是一个由多个 TransformerBlock 组成的列表，构建了 Transformer 编码器。
+
+### 运行结果
+
+在服务器上搭建环境，运行之后的结果为（仅 HAR 数据集）：
+
+![](assets/2.png)
+
+与论文中对比，可见结果非常符合。
+
+![](assets/3.png)
+
+## 调整和改进
+
+要求用 BERT 的网络架构和网络参数初始化模型，并替换 TimeMAE 的Encoder。这里做了一些尝试，修改了 TimeMAE 的 Encoder 部分：
+
+```python
+from transformers import BertModel, BertConfig
+
+class Encoder(nn.Module):
+    def __init__(self, args):
+        super(Encoder, self).__init__()
+        bert_config = BertConfig(
+            hidden_size=args.d_model,
+            num_hidden_layers=args.layers,
+            num_attention_heads=args.attn_heads,
+            intermediate_size=4 * args.d_model,
+            hidden_dropout_prob=args.dropout,
+            attention_probs_dropout_prob=args.dropout
+        )
+        self.bert_model = BertModel(config=bert_config)
+
+    def forward(self, x):
+        x = self.bert_model(x)
+        x = x.last_hidden_state
+        return x
+```
+
+但是这里遇到了一系列问题：BertModel 接收的参数是一个规模为 （batch_size, sequence_length）的 **整形** tensor，而这里的时间序列数据是一个规模为 (batch_size, sequence_length, dimension) =（128， 7， 64）的浮点型 tensor。使用了一些降维方式，但是仍然无效。
