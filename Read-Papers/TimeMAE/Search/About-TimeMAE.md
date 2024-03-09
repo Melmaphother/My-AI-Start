@@ -176,7 +176,7 @@
 
    同时，论文使用 STE（Straight-Through Estimator (STE) ） 的 trick 保证了反向传播的可导性，将梯度更新用该式代替：
 
-   ![](D:\My-winter-vacation-study\Read-Papers\TimeMAE\Search\assets\7.png)
+   ![](assets\7.png)
 
    在这里，sg 表示停止梯度操作符，即零偏导数，它能有效地限制其操作为一个不更新的常数。
 
@@ -256,6 +256,15 @@
   脚本文件，用于运行 `main.py` 和设置超参数
   运行三次，猜测可能是计算误差。
 
+### 代码学习
+
+#### `view`方法与`reshape`方法的不同
+
+在PyTorch中，`view`和`reshape`方法都用于改变张量的形状，但它们在处理非连续张量时的行为不同。
+
+- **`view`方法** 要求原始数据在内存中是连续的。如果原始张量不是连续的，直接使用`view`方法会导致错误。在这种情况下，需要先调用`.contiguous()`来使张量在内存中连续，然后才能使用`view`。`view`方法因此略微高效，因为它不会改变底层数据的布局，只在需要时要求数据连续性。
+- **`reshape`方法** 更加灵活，它可以在原始数据不连续的情况下工作。如果需要，`reshape`会自动处理数据的连续性问题。如果可以不改变数据在内存中的存储方式就改变形状，它就会这样做；如果不行，它会先复制数据，然后再改变形状。因此，`reshape`可以视为更“安全”或者更通用的方法，但可能在某些情况下效率略低。
+
 ### 数据集
 
 仅介绍 HAR 数据集：使用 load_HAR 函数，可以发现：TRAIN_DATA_ALL, TRAIN_DATA, TEST_DATA 分别用于预训练、微调和测试。其中各个数据集的规模如下：
@@ -323,28 +332,57 @@ class Encoder(nn.Module):
 
 ## 调整和改进
 
-要求用 BERT 的网络架构和网络参数初始化模型，并替换 TimeMAE 的Encoder。这里做了一些尝试，修改了 TimeMAE 的 Encoder 部分：
+尝试使用 BERT 的 Encoder 替换：
 
 ```python
-from transformers import BertModel, BertConfig
-
 class Encoder(nn.Module):
     def __init__(self, args):
         super(Encoder, self).__init__()
-        bert_config = BertConfig(
-            hidden_size=args.d_model,
-            num_hidden_layers=args.layers,
-            num_attention_heads=args.attn_heads,
-            intermediate_size=4 * args.d_model,
-            hidden_dropout_prob=args.dropout,
-            attention_probs_dropout_prob=args.dropout
-        )
-        self.bert_model = BertModel(config=bert_config)
+        bert_hidden_dim = 256
+        # self.expand_embedding = nn.Linear(args.d_model, bert_hidden_dim)
+        self.bert = BertModel.from_pretrained('google/bert_uncased_L-8_H-256_A-4', output_hidden_states=True)
+        # self.compress_embedding = nn.Linear(bert_hidden_dim, args.d_model)
 
     def forward(self, x):
-        x = self.bert_model(x)
-        x = x.last_hidden_state
-        return x
+        # x = self.expand_embedding(x)
+        outputs = self.bert(inputs_embeds=x)
+        hidden_state = outputs.hidden_states[-1] 
+        # x = self.compress_embedding(hidden_state)
+        return hidden_state
+
 ```
 
-但是这里遇到了一系列问题：BertModel 接收的参数是一个规模为 （batch_size, sequence_length）的 **整形** tensor，而这里的时间序列数据是一个规模为 (batch_size, sequence_length, dimension) =（128， 7， 64）的浮点型 tensor。使用了一些降维方式，但是仍然无效。
+发现，使用 BERT 的 Encoder，并没有任何的提升，反而各种标准（hits，ndcg，accuracy）等都大幅下跌。
+
+原因分析：
+
+- BERT 模型的参数如下：
+
+  ![](assets\9.png)
+
+  可以看到，BERT 模型最小的 dimension 都是 128，然而我们模型中的 dimension 默认为64，如果保持该默认值，必须在进入 BERT 时使用一个线性层 expand 到 128 以上，之后再 compress 回 64。这个过程势必会导致信息的丢失。
+
+  于是我尝试改变 TimeMAE 的默认 dimension 为 BERT 模型所接受的 dimension。选取 BERT 模型为：`google/bert_uncased_L-8_H-256_A-4`，也就是保持 layer=8 以及 attention_head=4（保持与模型相同），然后将 dimension 改为 256。发现比使用线性层略好，但是还是比原先差很多，最终的 metrics 不再改变。
+
+  ![](assets\8.png)
+
+- 怀疑是原数据只有 128 维，维度太小，导致信息不够。于是我尝试使用原先的 Encoder，再只将 dimension 调成 256，也就是经过线性层之后的输出的维度是 256，发现比论文中的结果好！
+
+  - 原论文
+
+    ![](assets\10.png)
+
+    ![](assets/11.png)
+
+  - 调成 dimension = 256
+
+    ![](assets\12.png)
+
+  可以看到，调整 dimension=256 之后，无论是 ndcg、 accuracy 还是 f1 值都有很大提升，loss 有大幅度下降，具体如下：
+  
+  |           | accuracy       | f1             | ndcg     | loss     |
+  | --------- | -------------- | -------------- | -------- | -------- |
+  | dim = 64  | $91.31\pm0.10$ | $91.25\pm0.06$ | $0.7877$ | $2.9038$ |
+  | dim = 256 | $92.91$        | $92.93$        | $0.9583$ | $1.8497$ |
+  
+  猜测是由于输出 dim 增高后，卷积层学习到的特征更加丰富了。所以瓶颈应该不出现在模型的 dim。那么只有一个解释：BERT 模型并不适合这个任务的分析。
