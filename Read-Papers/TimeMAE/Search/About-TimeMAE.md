@@ -198,11 +198,11 @@
 
    > target encoder 和 online encoder 的引入
    >
-   > 为了生成 target represention，进一步采用了一个新颖的 online encoder 模块。让Hξ表示目标编码器，它保留了与原本 Hθ 的编码器相同的超参数设置，但以 ξ 参数化。
+   > 为了生成 target represention，进一步采用了一个新颖的 online encoder 模块。让Hξ表示 target encoder，它保留了与原本 Hθ 的编码器相同的超参数设置，但以 ξ 参数化。
    >
    > 论文将标准变换器编码器 Hθ 和解耦编码器 Fθ 模块的组合称为 online encoder，在此生成对齐的表示。依赖于这样的孪生网络架构，target encoder 和 online encoder 分别可以产生遮蔽子序列表示的不同视图。因此，对齐两个不同视图的相应表示，即目标表示和预测表示F，自然形成了MRR任务的目标。
    >
-   > 理论上，MSE 可以用来优化 online encoder 和 target encoder。然而，由于在孪生网络架构中省略了负例，容易导致崩溃。为了防止模型崩溃的结果，论文中遵循以不同方式更新两个网络的规则，这种做法在之前的工作中被证明有效。根据这个思想，执行一个随机优化步骤，仅最小化在线编码器的参数，同时以动量移动平均的方式更新目标编码器。
+   > 理论上，MSE 可以用来优化 online encoder 和 target encoder。然而，由于在孪生网络架构中省略了负例，容易导致崩溃。为了防止模型崩溃的结果，论文中遵循以不同方式更新两个网络的规则，这种做法在之前的工作中被证明有效。根据这个思想，执行一个随机优化步骤，仅最小化 online encoder 的参数，同时以动量移动平均的方式更新目标编码器。
 
     为什么需要stop-gradient？
 
